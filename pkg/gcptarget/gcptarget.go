@@ -28,7 +28,8 @@ import (
 	"github.com/GoogleCloudPlatform/config-validator/pkg/api/validator"
 	asset2 "github.com/GoogleCloudPlatform/config-validator/pkg/asset"
 	"github.com/gogo/protobuf/jsonpb"
-	"github.com/open-policy-agent/frameworks/constraint/pkg/client"
+	"github.com/open-policy-agent/frameworks/constraint/pkg/core/constraints"
+	"github.com/open-policy-agent/frameworks/constraint/pkg/handler"
 	"github.com/open-policy-agent/frameworks/constraint/pkg/types"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -41,7 +42,7 @@ const Name = "validation.gcp.forsetisecurity.org"
 type GCPTarget struct {
 }
 
-var _ client.TargetHandler = &GCPTarget{}
+var _ handler.TargetHandler = &GCPTarget{}
 
 // New returns a new GCPTarget
 func New() *GCPTarget {
@@ -89,22 +90,22 @@ func (g *GCPTarget) MatchSchema() apiextensions.JSONSchemaProps {
 	}
 }
 
-// GetName implements client.TargetHandler
+// GetName implements handler.TargetHandler
 func (g *GCPTarget) GetName() string {
 	return Name
 }
 
-// Library implements client.TargetHandler
+// Library implements handler.TargetHandler
 func (g *GCPTarget) Library() *template.Template {
 	return libraryTemplate
 }
 
-// ProcessData implements client.TargetHandler
-func (g *GCPTarget) ProcessData(obj interface{}) (bool, string, interface{}, error) {
-	return false, "", nil, errors.New("Storing data for referential constraint eval is not supported at this time.")
+// ProcessData implements handler.TargetHandler
+func (g *GCPTarget) ProcessData(obj interface{}) (bool, []string, interface{}, error) {
+	return false, nil, nil, errors.New("Storing data for referential constraint eval is not supported at this time.")
 }
 
-// HandleReview implements client.TargetHandler
+// HandleReview implements handler.TargetHandler
 func (g *GCPTarget) HandleReview(obj interface{}) (bool, interface{}, error) {
 	switch asset := obj.(type) {
 	case *validator.Asset:
@@ -195,9 +196,9 @@ func (g *GCPTarget) handleAsset(asset *validator.Asset) (bool, interface{}, erro
 	return true, f, nil
 }
 
-// HandleViolation implements client.TargetHandler
+// HandleViolation implements handler.TargetHandler
 func (g *GCPTarget) HandleViolation(result *types.Result) error {
-	result.Resource = result.Review
+	// result.Resource = result.Review
 	return nil
 }
 
@@ -276,7 +277,7 @@ func checkPathGlobs(rs []string) error {
 	return nil
 }
 
-// ValidateConstraint implements client.TargetHandler
+// ValidateConstraint implements handler.TargetHandler
 func (g *GCPTarget) ValidateConstraint(constraint *unstructured.Unstructured) error {
 	ancestries, ancestriesFound, ancestriesErr := unstructured.NestedStringSlice(constraint.Object, "spec", "match", "ancestries")
 	targets, targetsFound, targetsErr := unstructured.NestedStringSlice(constraint.Object, "spec", "match", "target")
@@ -326,4 +327,18 @@ func (g *GCPTarget) ValidateConstraint(constraint *unstructured.Unstructured) er
 		}
 	}
 	return nil
+}
+
+type  fakeMatcher struct {
+
+}
+
+// Match implements constraints.Matcher
+func (m fakeMatcher) Match(review interface{}) (bool, error) {
+	return true, nil
+}
+
+// ToMatcher implements handler.TargetHandler
+func (g *GCPTarget) ToMatcher(constraint *unstructured.Unstructured) (constraints.Matcher, error) {
+	return fakeMatcher{}, nil
 }

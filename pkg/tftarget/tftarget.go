@@ -20,7 +20,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/open-policy-agent/frameworks/constraint/pkg/client"
+	"github.com/open-policy-agent/frameworks/constraint/pkg/core/constraints"
+	"github.com/open-policy-agent/frameworks/constraint/pkg/handler"
 	"github.com/open-policy-agent/frameworks/constraint/pkg/types"
 	"github.com/pkg/errors"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
@@ -34,7 +35,7 @@ const Name = "validation.resourcechange.terraform.cloud.google.com"
 type TFTarget struct {
 }
 
-var _ client.TargetHandler = &TFTarget{}
+var _ handler.TargetHandler = &TFTarget{}
 
 // New returns a new TFTarget
 func New() *TFTarget {
@@ -66,22 +67,22 @@ func (g *TFTarget) MatchSchema() apiextensions.JSONSchemaProps {
 	}
 }
 
-// GetName implements client.TargetHandler
+// GetName implements handler.TargetHandler
 func (g *TFTarget) GetName() string {
 	return Name
 }
 
-// Library implements client.TargetHandler
+// Library implements handler.TargetHandler
 func (g *TFTarget) Library() *template.Template {
 	return libraryTemplate
 }
 
-// ProcessData implements client.TargetHandler
-func (g *TFTarget) ProcessData(obj interface{}) (bool, string, interface{}, error) {
-	return false, "", nil, errors.Errorf("Storing data for referential constraint eval is not supported at this time.")
+// ProcessData implements handler.TargetHandler
+func (g *TFTarget) ProcessData(obj interface{}) (bool, []string, interface{}, error) {
+	return false, nil, nil, errors.Errorf("Storing data for referential constraint eval is not supported at this time.")
 }
 
-// HandleReview implements client.TargetHandler
+// HandleReview implements handler.TargetHandler
 func (g *TFTarget) HandleReview(obj interface{}) (bool, interface{}, error) {
 	switch resource := obj.(type) {
 	case map[string]interface{}:
@@ -102,9 +103,9 @@ func (g *TFTarget) HandleReview(obj interface{}) (bool, interface{}, error) {
 	return false, nil, nil
 }
 
-// HandleViolation implements client.TargetHandler
+// HandleViolation implements handler.TargetHandler
 func (g *TFTarget) HandleViolation(result *types.Result) error {
-	result.Resource = result.Review
+	// result.Resource = result.Review
 	return nil
 }
 
@@ -136,7 +137,7 @@ func checkPathGlobs(rs []string) error {
 	return nil
 }
 
-// ValidateConstraint implements client.TargetHandler
+// ValidateConstraint implements handler.TargetHandler
 func (g *TFTarget) ValidateConstraint(constraint *unstructured.Unstructured) error {
 	includes, found, err := unstructured.NestedStringSlice(constraint.Object, "spec", "match", "addresses")
 	if err != nil {
@@ -157,4 +158,18 @@ func (g *TFTarget) ValidateConstraint(constraint *unstructured.Unstructured) err
 		}
 	}
 	return nil
+}
+
+type  fakeMatcher struct {
+
+}
+
+// Match implements constraints.Matcher
+func (m fakeMatcher) Match(review interface{}) (bool, error) {
+	return true, nil
+}
+
+// ToMatcher implements handler.TargetHandler
+func (g *TFTarget) ToMatcher(constraint *unstructured.Unstructured) (constraints.Matcher, error) {
+	return fakeMatcher{}, nil
 }

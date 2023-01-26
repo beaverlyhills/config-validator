@@ -30,7 +30,7 @@ import (
 	cfclient "github.com/open-policy-agent/frameworks/constraint/pkg/client"
 	"github.com/open-policy-agent/frameworks/constraint/pkg/client/drivers/local"
 	cftemplates "github.com/open-policy-agent/frameworks/constraint/pkg/core/templates"
-	k8starget "github.com/open-policy-agent/gatekeeper/pkg/target"
+	"github.com/open-policy-agent/frameworks/constraint/pkg/handler"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -67,14 +67,12 @@ type Validator struct {
 	// Right now expected to be set to point to "//policies/validator/lib" folder
 	policyLibraryDir string
 	gcpCFClient      *cfclient.Client
-	k8sCFClient      *cfclient.Client
 	tfCFClient       *cfclient.Client
 }
 
 // Stores functional options for CF client
 type initOptions struct {
 	driverArgs  []local.Arg
-	backendArgs []cfclient.BackendOpt
 	clientArgs  []cfclient.Opt
 }
 
@@ -101,7 +99,7 @@ func NewValidatorConfig(policyPaths []string, policyLibraryPath string) (*config
 }
 
 func newCFClient(
-	targetHandler cfclient.TargetHandler,
+	targetHandler handler.TargetHandler,
 	templates []*cftemplates.ConstraintTemplate,
 	constraints []*unstructured.Unstructured,
 	opts ...Option) (
@@ -116,14 +114,13 @@ func newCFClient(
 		opt(options)
 	}
 
-	driver := local.New(options.driverArgs...)
-	// Append driver option after creation
-	options.backendArgs = append(options.backendArgs, cfclient.Driver(driver))
-	backend, err := cfclient.NewBackend(options.backendArgs...)
+	driver, err := local.New(options.driverArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to set up Constraint Framework backend: %w", err)
+		return nil, fmt.Errorf("unable to set up local driver: %w", err)
 	}
-	cfClient, err := backend.NewClient(options.clientArgs...)
+	// Append driver option after creation
+	options.clientArgs = append(options.clientArgs, cfclient.Driver(driver))
+	cfClient, err := cfclient.NewClient(options.clientArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to set up Constraint Framework client: %w", err)
 	}
@@ -157,11 +154,6 @@ func NewValidatorFromConfig(config *configs.Configuration, opts ...Option) (*Val
 		return nil, fmt.Errorf("unable to set up GCP Constraint Framework client: %w", err)
 	}
 
-	k8sCFClient, err := newCFClient(&k8starget.K8sValidationTarget{}, config.K8STemplates, config.K8SConstraints, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to set up K8S Constraint Framework client: %w", err)
-	}
-
 	tfCFClient, err := newCFClient(tftarget.New(), config.TFTemplates, config.TFConstraints, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to set up TF Constraint Framework client: %w", err)
@@ -169,7 +161,6 @@ func NewValidatorFromConfig(config *configs.Configuration, opts ...Option) (*Val
 
 	ret := &Validator{
 		gcpCFClient: gcpCFClient,
-		k8sCFClient: k8sCFClient,
 		tfCFClient:  tfCFClient,
 	}
 	return ret, nil
@@ -286,23 +277,7 @@ func (v *Validator) ReviewUnmarshalledJSON(ctx context.Context, asset map[string
 		return nil, err
 	}
 
-	if asset2.IsK8S(asset) {
-		return v.reviewK8SResource(ctx, asset)
-	}
 	return v.reviewGCPResource(ctx, asset)
-}
-
-// reviewK8SResource will convert CAI assets to k8s resources then pass them to the cf client with the gatekeeper target.
-func (v *Validator) reviewK8SResource(ctx context.Context, asset map[string]interface{}) (*Result, error) {
-	k8sResource, err := asset2.ConvertCAIToK8s(asset)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert asset to admission request: %w", err)
-	}
-	responses, err := v.k8sCFClient.Review(ctx, k8sResource)
-	if err != nil {
-		return nil, fmt.Errorf("K8S target Constraint Framework review call failed: %w", err)
-	}
-	return NewResult(configs.K8STargetName, asset["name"].(string), asset, k8sResource.Object, responses)
 }
 
 // reviewGCPResource will pass CAI assets to the cf client with the GCP target.
